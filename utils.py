@@ -62,7 +62,7 @@ class ModelInformation:
         self.download_url = json_data.get("downloadUrl", "")
         self.model_url = f"https://civitai.com/models/{self.model_id}?modelVersionId={self.model_version_id}"
         self.filename_url = next(
-            (v.get("name", "") for v in json_data.get("files", []) if str(self.model_version_id) in v.get("downloadUrl", "")), ""
+            (v.get("name", "") for v in reversed(json_data.get("files", [])) if str(self.model_version_id) in v.get("downloadUrl", "")), ""
         )
         self.filename_url = self.filename_url if self.filename_url else ""
         self.description = json_data.get("description", "")
