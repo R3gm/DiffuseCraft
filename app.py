@@ -175,6 +175,7 @@ class GuiSD:
         dtype_model = torch.bfloat16 if model_type == "FLUX" else torch.float16
 
         if not os.path.exists(model_name):
+            print("debug", model_name, vae_model, task, controlnet_model)
             _ = download_diffuser_repo(
                 repo_name=model_name,
                 model_type=model_type,
