@@ -4,3 +4,4 @@ gdown
 opencv-python
 unidecode
 pydantic==2.10.6
+huggingface_hub==0.29.3
