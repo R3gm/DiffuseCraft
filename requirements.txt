@@ -1,4 +1,4 @@
-stablepy==0.6.0
+stablepy==0.6.2
 torch==2.2.0
 gdown
 opencv-python
