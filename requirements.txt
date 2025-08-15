@@ -3,3 +3,4 @@ torch==2.2.0
 gdown
 opencv-python
 unidecode
+pydantic==2.10.6
