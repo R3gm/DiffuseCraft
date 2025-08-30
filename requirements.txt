@@ -1,7 +1,10 @@
 stablepy==0.6.2
-torch==2.2.0
+torch==2.5.1
+diffusers
 gdown
 opencv-python
 unidecode
 pydantic==2.10.6
 huggingface_hub==0.29.3
+spaces
+gradio==5.44.1

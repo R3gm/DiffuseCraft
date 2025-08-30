@@ -1,5 +1,6 @@
 import spaces
 import os
+from argparse import ArgumentParser
 from stablepy import (
     Model_Diffusers,
     SCHEDULE_TYPE_OPTIONS,
@@ -72,11 +73,17 @@ from diffusers import FluxPipeline
 # import urllib.parse
 import subprocess
 
-subprocess.run("rm -rf /data-nvme/zerogpu-offload/*", env={}, shell=True)
+print(os.getenv("SPACES_ZERO_GPU"))
+IS_ZERO_GPU = os.getenv("SPACES_ZERO_GPU")
+if IS_ZERO_GPU:
+    subprocess.run("rm -rf /data-nvme/zerogpu-offload/*", env={}, shell=True)
+IS_GPU_MODE = True if IS_ZERO_GPU else (True if torch.cuda.is_available() else False)
+img_path = "./images/"
+allowed_path = os.path.abspath(img_path)
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 torch.backends.cuda.matmul.allow_tf32 = True
 # os.environ["PYTORCH_NO_CUDA_MEMORY_CACHING"] = "1"
-print(os.getenv("SPACES_ZERO_GPU"))
 
 directories = [DIRECTORY_MODELS, DIRECTORY_LORAS, DIRECTORY_VAES, DIRECTORY_EMBEDS, DIRECTORY_UPSCALERS]
 for directory in directories:
@@ -114,15 +121,16 @@ vae_model_list.insert(0, "None")
 
 print('\033[33m🏁 Download and listing of valid models completed.\033[0m')
 
-flux_repo = "camenduru/FLUX.1-dev-diffusers"
-flux_pipe = FluxPipeline.from_pretrained(
-    flux_repo,
-    transformer=None,
-    torch_dtype=torch.bfloat16,
-).to("cuda")
-components = flux_pipe.components
-delete_model(flux_repo)
-# components = None
+components = None
+if IS_ZERO_GPU:
+    flux_repo = "camenduru/FLUX.1-dev-diffusers"
+    flux_pipe = FluxPipeline.from_pretrained(
+        flux_repo,
+        transformer=None,
+        torch_dtype=torch.bfloat16,
+    ).to("cuda")
+    components = flux_pipe.components
+    delete_model(flux_repo)
 
 #######################
 # GUI
@@ -132,7 +140,17 @@ diffusers.utils.logging.set_verbosity(40)
 warnings.filterwarnings(action="ignore", category=FutureWarning, module="diffusers")
 warnings.filterwarnings(action="ignore", category=UserWarning, module="diffusers")
 warnings.filterwarnings(action="ignore", category=FutureWarning, module="transformers")
-logger.setLevel(logging.DEBUG)
+
+parser = ArgumentParser(description='DiffuseCraft: Generate images.', add_help=True)
+parser.add_argument("--share", action="store_true", dest="share_enabled", default=False, help="Enable sharing")
+parser.add_argument('--theme', type=str, default="NoCrypt/miku", help='Set the theme (default: NoCrypt/miku)')
+parser.add_argument("--ssr", action="store_true", help="Enable SSR (Server-Side Rendering)")
+parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Set logging level (default: INFO)")
+args = parser.parse_args()
+
+logger.setLevel(
+    "DEBUG" if IS_ZERO_GPU else getattr(logging, args.log_level.upper())
+)
 
 CSS = """
 .contain { display: flex; flex-direction: column; }
@@ -167,23 +185,30 @@ class GuiSD:
     def load_new_model(self, model_name, vae_model, task, controlnet_model, progress=gr.Progress(track_tqdm=True)):
 
         # download link model > model_name
+        if "http" in model_name:
+            path_model = f"./{DIRECTORY_MODELS}/{model_name.split('/')[-1]}"
+            if os.path.exists(path_model):
+                model_name = path_model
+            else:
+                model_name = download_things(DIRECTORY_MODELS, model_name, HF_TOKEN, CIVITAI_API_KEY)
 
-        self.update_storage_models()
+        if IS_ZERO_GPU:
+            self.update_storage_models()
 
         vae_model = vae_model if vae_model != "None" else None
         model_type = get_model_type(model_name)
         dtype_model = torch.bfloat16 if model_type == "FLUX" else torch.float16
 
         if not os.path.exists(model_name):
-            print("debug", model_name, vae_model, task, controlnet_model)
+            logger.debug(f"model_name={model_name}, vae_model={vae_model}, task={task}, controlnet_model={controlnet_model}")
             _ = download_diffuser_repo(
                 repo_name=model_name,
                 model_type=model_type,
                 revision="main",
                 token=True,
             )
-
-        self.update_inventory(model_name)
+        if IS_ZERO_GPU:
+            self.update_inventory(model_name)
 
         for i in range(68):
             if not self.status_loading:
@@ -220,10 +245,10 @@ class GuiSD:
                     type_model_precision=dtype_model,
                     retain_task_model_in_cache=False,
                     controlnet_model=controlnet_model,
-                    device="cpu",
+                    device="cpu" if IS_ZERO_GPU else None,
                     env_components=components,
                 )
-                self.model.advanced_params(image_preprocessor_cuda_active=True)
+                self.model.advanced_params(image_preprocessor_cuda_active=IS_GPU_MODE)
             else:
                 if self.model.base_model_id != model_name:
                     load_now_time = datetime.now()
@@ -233,7 +258,8 @@ class GuiSD:
                         print("Waiting for the previous model's time ops...")
                         time.sleep(9 - elapsed_time)
 
-                self.model.device = torch.device("cpu")
+                if IS_ZERO_GPU:
+                    self.model.device = torch.device("cpu")
                 self.model.load_pipe(
                     model_name,
                     task_name=TASK_STABLEPY[task],
@@ -387,7 +413,7 @@ class GuiSD:
         vae_msg = f"VAE: {vae_model}" if vae_model else ""
         msg_lora = ""
 
-        print("Config model:", model_name, vae_model, loras_list)
+        logger.debug(f"Config model: {model_name}, {vae_model}, {loras_list}")
 
         task = TASK_STABLEPY[task]
 
@@ -555,11 +581,11 @@ class GuiSD:
         # kwargs for diffusers pipeline
         if guidance_rescale:
             pipe_params["guidance_rescale"] = guidance_rescale
-
-        self.model.device = torch.device("cuda:0")
+        if IS_ZERO_GPU:
+            self.model.device = torch.device("cuda:0")
         if hasattr(self.model.pipe, "transformer") and loras_list != ["None"] * self.model.num_loras:
             self.model.pipe.transformer.to(self.model.device)
-            print("transformer to cuda")
+            logger.debug("transformer to cuda")
 
         actual_progress = 0
         info_images = gr.update()
@@ -589,7 +615,7 @@ class GuiSD:
 
                 download_links = "<br>".join(
                     [
-                        f'<a href="{path.replace("/images/", "/file=/home/user/app/images/")}" download="{os.path.basename(path)}">Download Image {i + 1}</a>'
+                        f'<a href="{path.replace("/images/", f"/gradio_api/file={allowed_path}/")}" download="{os.path.basename(path)}">Download Image {i + 1}</a>'
                         for i, path in enumerate(image_path)
                     ]
                 )
@@ -698,7 +724,8 @@ def sd_gen_generate_pipeline(*args):
 
 @spaces.GPU(duration=15)
 def process_upscale(image, upscaler_name, upscaler_size):
-    if image is None: return None
+    if image is None:
+        return None
 
     from stablepy.diffusers_vanilla.utils import save_pil_image_with_metadata
     from stablepy import load_upscaler_model
@@ -715,7 +742,7 @@ def process_upscale(image, upscaler_name, upscaler_size):
 
         name_upscaler = f"./{DIRECTORY_UPSCALERS}/{name_upscaler.split('/')[-1]}"
 
-    scaler_beta = load_upscaler_model(model=name_upscaler, tile=0, tile_overlap=8, device="cuda", half=True)
+    scaler_beta = load_upscaler_model(model=name_upscaler, tile=0, tile_overlap=8, device=("cuda" if IS_GPU_MODE else "cpu"), half=IS_GPU_MODE)
     image_up = scaler_beta.upscale(image, upscaler_size, True)
 
     image_path = save_pil_image_with_metadata(image_up, f'{os.getcwd()}/up_images', exif_image)
@@ -728,7 +755,7 @@ dynamic_gpu_duration.zerogpu = True
 sd_gen_generate_pipeline.zerogpu = True
 sd_gen = GuiSD()
 
-with gr.Blocks(theme="NoCrypt/miku", css=CSS) as app:
+with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as app:
     gr.Markdown("# 🧩 DiffuseCraft")
     gr.Markdown(SUBTITLE_GUI)
     with gr.Tab("Generation"):
@@ -899,7 +926,7 @@ with gr.Blocks(theme="NoCrypt/miku", css=CSS) as app:
                         run_set_random_seed, [], seed_gui
                     )
 
-                num_images_gui = gr.Slider(minimum=1, maximum=5, step=1, value=1, label="Images")
+                num_images_gui = gr.Slider(minimum=1, maximum=(5 if IS_ZERO_GPU else 20), step=1, value=1, label="Images")
                 prompt_syntax_gui = gr.Dropdown(label="Prompt Syntax", choices=PROMPT_W_OPTIONS, value=PROMPT_W_OPTIONS[1][1])
                 vae_model_gui = gr.Dropdown(label="VAE Model", choices=vae_model_list, value=vae_model_list[0])
 
@@ -1013,8 +1040,8 @@ with gr.Blocks(theme="NoCrypt/miku", css=CSS) as app:
                     preprocess_resolution_gui = gr.Slider(minimum=64, maximum=2048, step=64, value=512, label="Preprocessor Resolution")
                     low_threshold_gui = gr.Slider(minimum=1, maximum=255, step=1, value=100, label="'CANNY' low threshold")
                     high_threshold_gui = gr.Slider(minimum=1, maximum=255, step=1, value=200, label="'CANNY' high threshold")
-                    value_threshold_gui = gr.Slider(minimum=1, maximum=2.0, step=0.01, value=0.1, label="'MLSD' Hough value threshold")
-                    distance_threshold_gui = gr.Slider(minimum=1, maximum=20.0, step=0.01, value=0.1, label="'MLSD' Hough distance threshold")
+                    value_threshold_gui = gr.Slider(minimum=0.0, maximum=2.0, step=0.01, value=0.1, label="'MLSD' Hough value threshold")
+                    distance_threshold_gui = gr.Slider(minimum=0.0, maximum=20.0, step=0.01, value=0.1, label="'MLSD' Hough distance threshold")
                     recolor_gamma_correction_gui = gr.Number(minimum=0., maximum=25., value=1., step=0.001, label="'RECOLOR' gamma correction")
                     tile_blur_sigma_gui = gr.Number(minimum=0, maximum=100, value=9, step=1, label="'TILE' blur sigma")
 
@@ -1107,7 +1134,7 @@ with gr.Blocks(theme="NoCrypt/miku", css=CSS) as app:
                     disable_progress_bar_gui = gr.Checkbox(value=False, label="Disable Progress Bar")
                     display_images_gui = gr.Checkbox(value=False, label="Display Images")
                     image_previews_gui = gr.Checkbox(value=True, label="Image Previews")
-                    image_storage_location_gui = gr.Textbox(value="./images", label="Image Storage Location")
+                    image_storage_location_gui = gr.Textbox(value=img_path, label="Image Storage Location")
                     retain_compel_previous_load_gui = gr.Checkbox(value=False, label="Retain Compel Previous Load")
                     retain_detailfix_model_previous_load_gui = gr.Checkbox(value=False, label="Retain Detailfix Model Previous Load")
                     retain_hires_model_previous_load_gui = gr.Checkbox(value=False, label="Retain Hires Model Previous Load")
@@ -1168,10 +1195,20 @@ with gr.Blocks(theme="NoCrypt/miku", css=CSS) as app:
                             # "hsl(360, 120, 120)" # in fact any valid colorstring
                         ]
                     ),
-                    eraser=gr.Eraser(default_size="16")
+                    eraser=gr.Eraser(default_size="16"),
+                    render=True,
+                    visible=False,
+                    interactive=False,
                 )
+
+                show_canvas = gr.Button("SHOW INPAINT CANVAS")
+                def change_visibility_canvas():
+                    return gr.update(visible=True, interactive=True), gr.update(visible=False)
+                show_canvas.click(change_visibility_canvas, [], [image_base, show_canvas])
+
                 invert_mask = gr.Checkbox(value=False, label="Invert mask")
                 btn = gr.Button("Create mask")
+
             with gr.Column(scale=1):
                 img_source = gr.Image(interactive=False)
                 img_result = gr.Image(label="Mask image", show_label=True, interactive=False)
@@ -1363,10 +1400,12 @@ with gr.Blocks(theme="NoCrypt/miku", css=CSS) as app:
         show_progress="minimal",
     )
 
-app.queue()
-
-app.launch(
-    show_error=True,
-    debug=True,
-    allowed_paths=["./images/"],
-)
+if __name__ == "__main__":
+    app.queue()
+    app.launch(
+        show_error=True,
+        share=args.share_enabled,
+        debug=True,
+        ssr_mode=(True if IS_ZERO_GPU else args.ssr),
+        allowed_paths=[allowed_path],
+    )

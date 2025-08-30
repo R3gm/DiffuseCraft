@@ -76,12 +76,138 @@ class ModelInformation:
         self.original_json = copy.deepcopy(json_data)
 
 
-def retrieve_model_info(url):
-    json_data = request_json_data(url)
-    if not json_data:
-        return None
-    model_descriptor = ModelInformation(json_data)
-    return model_descriptor
+def get_civit_params(url):
+    try:
+        json_data = request_json_data(url)
+        mdc = ModelInformation(json_data)
+        if mdc.download_url and mdc.filename_url:
+            return mdc.download_url, mdc.filename_url, mdc.model_url
+        else:
+            ValueError("Invalid Civitai model URL or API limit reached?")
+    except Exception as e:
+        print(f"Error retrieving Civitai metadata: {e} — fallback to direct download")
+        print("If it’s an API limit issue, generating a new API key may fix the problem.")
+        return url, None, None
+
+
+def civ_redirect_down(url, dir, civitai_api_key, romanize, alternative_name):
+    filename_base = None
+
+    if alternative_name:
+        output_path = os.path.join(dir, alternative_name)
+        if os.path.exists(output_path):
+            return output_path, alternative_name
+
+    # Follow the redirect to get the actual download URL
+    curl_command = (
+        f'curl -L -sI --connect-timeout 5 --max-time 5 '
+        f'-H "Content-Type: application/json" '
+        f'-H "Authorization: Bearer {civitai_api_key}" "{url}"'
+    )
+
+    headers = os.popen(curl_command).read()
+
+    # Look for the redirected "Location" URL
+    location_match = re.search(r'location: (.+)', headers, re.IGNORECASE)
+
+    if location_match:
+        redirect_url = location_match.group(1).strip()
+
+        # Extract the filename from the redirect URL's "Content-Disposition"
+        filename_match = re.search(r'filename%3D%22(.+?)%22', redirect_url)
+        if filename_match:
+            encoded_filename = filename_match.group(1)
+            # Decode the URL-encoded filename
+            decoded_filename = urllib.parse.unquote(encoded_filename)
+
+            filename = unidecode(decoded_filename) if romanize else decoded_filename
+            print(f"Filename redirect: {filename}")
+
+    filename_base = alternative_name if alternative_name else filename
+    if not filename_base:
+        return None, None
+
+    aria2_command = (
+        f'aria2c --console-log-level=error --summary-interval=10 -c -x 16 '
+        f'-k 1M -s 16 -d "{dir}" -o "{filename_base}" "{redirect_url}"'
+    )
+    r_code = os.system(aria2_command)
+
+    # if r_code != 0:
+    #     raise RuntimeError(f"Failed to download file: {filename_base}. Error code: {r_code}")
+
+    output_path = os.path.join(dir, filename_base)
+    if not os.path.exists(output_path):
+        return None, filename_base
+
+    return output_path, filename_base
+
+
+def civ_api_down(url, dir, civitai_api_key, civ_filename):
+    output_path = None
+
+    url_dl = url + f"?token={civitai_api_key}"
+    if not civ_filename:
+        aria2_command = f'aria2c -c -x 1 -s 1 -d "{dir}" "{url_dl}"'
+        os.system(aria2_command)
+    else:
+        output_path = os.path.join(dir, civ_filename)
+        if not os.path.exists(output_path):
+            aria2_command = (
+                f'aria2c --console-log-level=error --summary-interval=10 -c -x 16 '
+                f'-k 1M -s 16 -d "{dir}" -o "{civ_filename}" "{url_dl}"'
+            )
+            os.system(aria2_command)
+
+    return output_path
+
+
+def drive_down(url, dir):
+    import gdown
+
+    output_path = None
+
+    drive_id, _ = gdown.parse_url.parse_url(url, warning=False)
+    dir_files = os.listdir(dir)
+
+    for dfile in dir_files:
+        if drive_id in dfile:
+            output_path = os.path.join(dir, dfile)
+            break
+
+    if not output_path:
+        original_path = gdown.download(url, f"{dir}/", fuzzy=True)
+
+        dir_name, base_name = os.path.split(original_path)
+        name, ext = base_name.rsplit(".", 1)
+        new_name = f"{name}_{drive_id}.{ext}"
+        output_path = os.path.join(dir_name, new_name)
+
+        os.rename(original_path, output_path)
+
+    return output_path
+
+
+def hf_down(url, dir, hf_token, romanize):
+    url = url.replace("?download=true", "")
+    # url = urllib.parse.quote(url, safe=':/')  # fix encoding
+
+    filename = unidecode(url.split('/')[-1]) if romanize else url.split('/')[-1]
+    output_path = os.path.join(dir, filename)
+
+    if os.path.exists(output_path):
+        return output_path
+
+    if "/blob/" in url:
+        url = url.replace("/blob/", "/resolve/")
+
+    if hf_token:
+        user_header = f'"Authorization: Bearer {hf_token}"'
+        os.system(f"aria2c --console-log-level=error --summary-interval=10 --header={user_header} -c -x 16 -k 1M -s 16 {url} -d {dir}  -o {filename}")
+    else:
+        os.system(f"aria2c --optimize-concurrent-downloads --console-log-level=error --summary-interval=10 -c -x 16 -k 1M -s 16 {url} -d {dir}  -o {filename}")
+
+    return output_path
 
 
 def download_things(directory, url, hf_token="", civitai_api_key="", romanize=False):
@@ -89,105 +215,23 @@ def download_things(directory, url, hf_token="", civitai_api_key="", romanize=Fa
     downloaded_file_path = None
 
     if "drive.google.com" in url:
-        original_dir = os.getcwd()
-        os.chdir(directory)
-        os.system(f"gdown --fuzzy {url}")
-        os.chdir(original_dir)
+        downloaded_file_path = drive_down(url, directory)
     elif "huggingface.co" in url:
-        url = url.replace("?download=true", "")
-        # url = urllib.parse.quote(url, safe=':/')  # fix encoding
-        if "/blob/" in url:
-            url = url.replace("/blob/", "/resolve/")
-        user_header = f'"Authorization: Bearer {hf_token}"'
-
-        filename = unidecode(url.split('/')[-1]) if romanize else url.split('/')[-1]
-
-        if hf_token:
-            os.system(f"aria2c --console-log-level=error --summary-interval=10 --header={user_header} -c -x 16 -k 1M -s 16 {url} -d {directory}  -o {filename}")
-        else:
-            os.system(f"aria2c --optimize-concurrent-downloads --console-log-level=error --summary-interval=10 -c -x 16 -k 1M -s 16 {url} -d {directory}  -o {filename}")
-
-        downloaded_file_path = os.path.join(directory, filename)
-
+        downloaded_file_path = hf_down(url, directory, hf_token, romanize)
     elif "civitai.com" in url:
-
         if not civitai_api_key:
             print("\033[91mYou need an API key to download Civitai models.\033[0m")
+            return None
 
-        model_profile = retrieve_model_info(url)
-        if (
-            model_profile is not None
-            and model_profile.download_url
-            and model_profile.filename_url
-        ):
-            url = model_profile.download_url
-            filename = unidecode(model_profile.filename_url) if romanize else model_profile.filename_url
-        else:
-            if "?" in url:
-                url = url.split("?")[0]
-            filename = ""
+        url, civ_filename, civ_page = get_civit_params(url)
+        if civ_page:
+            print(f"\033[92mCivitai model: {civ_filename} [page: {civ_page}]\033[0m")
 
-        url_dl = url + f"?token={civitai_api_key}"
-        print(f"Filename: {filename}")
+        downloaded_file_path, civ_filename = civ_redirect_down(url, directory, civitai_api_key, romanize, civ_filename)
 
-        param_filename = ""
-        if filename:
-            param_filename = f"-o '{filename}'"
-
-        aria2_command = (
-            f'aria2c --console-log-level=error --summary-interval=10 -c -x 16 '
-            f'-k 1M -s 16 -d "{directory}" {param_filename} "{url_dl}"'
-        )
-        os.system(aria2_command)
-
-        if param_filename and os.path.exists(os.path.join(directory, filename)):
-            downloaded_file_path = os.path.join(directory, filename)
-
-        # # PLAN B
-        # # Follow the redirect to get the actual download URL
-        # curl_command = (
-        #     f'curl -L -sI --connect-timeout 5 --max-time 5 '
-        #     f'-H "Content-Type: application/json" '
-        #     f'-H "Authorization: Bearer {civitai_api_key}" "{url}"'
-        # )
-
-        # headers = os.popen(curl_command).read()
-
-        # # Look for the redirected "Location" URL
-        # location_match = re.search(r'location: (.+)', headers, re.IGNORECASE)
-
-        # if location_match:
-        #     redirect_url = location_match.group(1).strip()
-
-        #     # Extract the filename from the redirect URL's "Content-Disposition"
-        #     filename_match = re.search(r'filename%3D%22(.+?)%22', redirect_url)
-        #     if filename_match:
-        #         encoded_filename = filename_match.group(1)
-        #         # Decode the URL-encoded filename
-        #         decoded_filename = urllib.parse.unquote(encoded_filename)
-
-        #         filename = unidecode(decoded_filename) if romanize else decoded_filename
-        #         print(f"Filename: {filename}")
-
-        #         aria2_command = (
-        #             f'aria2c --console-log-level=error --summary-interval=10 -c -x 16 '
-        #             f'-k 1M -s 16 -d "{directory}" -o "{filename}" "{redirect_url}"'
-        #         )
-        #         return_code = os.system(aria2_command)
-
-        #         # if return_code != 0:
-        #         #     raise RuntimeError(f"Failed to download file: {filename}. Error code: {return_code}")
-        #         downloaded_file_path = os.path.join(directory, filename)
-        #         if not os.path.exists(downloaded_file_path):
-        #             downloaded_file_path = None
-
-        # if not downloaded_file_path:
-        #     # Old method
-        #     if "?" in url:
-        #         url = url.split("?")[0]
-        #     url = url + f"?token={civitai_api_key}"
-        #     os.system(f"aria2c --console-log-level=error --summary-interval=10 -c -x 16 -k 1M -s 16 -d {directory} {url}")
-
+        if not downloaded_file_path:
+            print("Trying with the old method")
+            downloaded_file_path = civ_api_down(url, dir, civitai_api_key, civ_filename)
     else:
         os.system(f"aria2c --console-log-level=error --summary-interval=10 -c -x 16 -k 1M -s 16 -d {directory} {url}")
 
