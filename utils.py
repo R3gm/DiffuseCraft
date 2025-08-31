@@ -66,7 +66,8 @@ class ModelInformation:
         )
         self.filename_url = self.filename_url if self.filename_url else ""
         self.description = json_data.get("description", "")
-        if self.description is None: self.description = ""
+        if self.description is None:
+            self.description = ""
         self.model_name = json_data.get("model", {}).get("name", "")
         self.model_type = json_data.get("model", {}).get("type", "")
         self.nsfw = json_data.get("model", {}).get("nsfw", False)
@@ -83,10 +84,9 @@ def get_civit_params(url):
         if mdc.download_url and mdc.filename_url:
             return mdc.download_url, mdc.filename_url, mdc.model_url
         else:
-            ValueError("Invalid Civitai model URL or API limit reached?")
+            ValueError("Invalid Civitai model URL")
     except Exception as e:
         print(f"Error retrieving Civitai metadata: {e} — fallback to direct download")
-        print("If it’s an API limit issue, generating a new API key may fix the problem.")
         return url, None, None
 
 
@@ -121,7 +121,7 @@ def civ_redirect_down(url, dir, civitai_api_key, romanize, alternative_name):
             decoded_filename = urllib.parse.unquote(encoded_filename)
 
             filename = unidecode(decoded_filename) if romanize else decoded_filename
-            print(f"Filename redirect: {filename}")
+            # print(f"Filename redirect: {filename}")
 
     filename_base = alternative_name if alternative_name else filename
     if not filename_base:
@@ -131,7 +131,7 @@ def civ_redirect_down(url, dir, civitai_api_key, romanize, alternative_name):
         f'aria2c --console-log-level=error --summary-interval=10 -c -x 16 '
         f'-k 1M -s 16 -d "{dir}" -o "{filename_base}" "{redirect_url}"'
     )
-    r_code = os.system(aria2_command)
+    r_code = os.system(aria2_command)  # noqa
 
     # if r_code != 0:
     #     raise RuntimeError(f"Failed to download file: {filename_base}. Error code: {r_code}")
@@ -144,6 +144,10 @@ def civ_redirect_down(url, dir, civitai_api_key, romanize, alternative_name):
 
 
 def civ_api_down(url, dir, civitai_api_key, civ_filename):
+    """
+    This method is susceptible to being blocked because it generates a lot of temp redirect links with aria2c.
+    If an API key limit is reached, generating a new API key and using it can fix the issue.
+    """
     output_path = None
 
     url_dl = url + f"?token={civitai_api_key}"
@@ -220,7 +224,9 @@ def download_things(directory, url, hf_token="", civitai_api_key="", romanize=Fa
         downloaded_file_path = hf_down(url, directory, hf_token, romanize)
     elif "civitai.com" in url:
         if not civitai_api_key:
-            print("\033[91mYou need an API key to download Civitai models.\033[0m")
+            msg = "\033[91mYou need an API key to download Civitai models.\033[0m"
+            print(msg)
+            gr.Info(msg)
             return None
 
         url, civ_filename, civ_page = get_civit_params(url)
@@ -230,7 +236,13 @@ def download_things(directory, url, hf_token="", civitai_api_key="", romanize=Fa
         downloaded_file_path, civ_filename = civ_redirect_down(url, directory, civitai_api_key, romanize, civ_filename)
 
         if not downloaded_file_path:
-            print("Trying with the old method")
+            msg = (
+                "Download failed.\n"
+                "If this is due to an API limit, generating a new API key may resolve the issue.\n"
+                "Attempting to download using the old method..."
+            )
+            print(msg)
+            gr.Info(msg)
             downloaded_file_path = civ_api_down(url, dir, civitai_api_key, civ_filename)
     else:
         os.system(f"aria2c --console-log-level=error --summary-interval=10 -c -x 16 -k 1M -s 16 -d {directory} {url}")
@@ -260,14 +272,15 @@ def extract_parameters(input_string):
         if "Steps:" in input_string:
             input_string = input_string.replace("Steps:", "Negative prompt: Steps:")
         else:
-            print("Invalid metadata")
+            msg = "Generation data is invalid."
+            gr.Info(msg)
+            print(msg)
             parameters["prompt"] = input_string
             return parameters
 
     parm = input_string.split("Negative prompt:")
     parameters["prompt"] = parm[0].strip()
     if "Steps:" not in parm[1]:
-        print("Steps not detected")
         parameters["neg_prompt"] = parm[1].strip()
         return parameters
     parm = parm[1].split("Steps:")
@@ -350,7 +363,8 @@ def get_model_type(repo_id: str):
             model = api.model_info(repo_id=repo_id, timeout=5.0)
             tags = model.tags
             for tag in tags:
-                if tag in MODEL_TYPE_CLASS.keys(): return MODEL_TYPE_CLASS.get(tag, default)
+                if tag in MODEL_TYPE_CLASS.keys():
+                    return MODEL_TYPE_CLASS.get(tag, default)
 
     except Exception:
         return default

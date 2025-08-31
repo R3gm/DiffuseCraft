@@ -73,7 +73,6 @@ from diffusers import FluxPipeline
 # import urllib.parse
 import subprocess
 
-print(os.getenv("SPACES_ZERO_GPU"))
 IS_ZERO_GPU = os.getenv("SPACES_ZERO_GPU")
 if IS_ZERO_GPU:
     subprocess.run("rm -rf /data-nvme/zerogpu-offload/*", env={}, shell=True)
@@ -158,6 +157,12 @@ CSS = """
 #gallery { flex-grow: 1; }
 #load_model { height: 50px; }
 """
+
+
+def lora_chk(lora_):
+    if isinstance(lora_, str) and lora_.strip() not in ["", "None"]:
+        return lora_
+    return None
 
 
 class GuiSD:
@@ -511,19 +516,19 @@ class GuiSD:
             "distance_threshold": distance_threshold,
             "recolor_gamma_correction": float(recolor_gamma_correction),
             "tile_blur_sigma": int(tile_blur_sigma),
-            "lora_A": lora1 if lora1 != "None" else None,
+            "lora_A": lora_chk(lora1),
             "lora_scale_A": lora_scale1,
-            "lora_B": lora2 if lora2 != "None" else None,
+            "lora_B": lora_chk(lora2),
             "lora_scale_B": lora_scale2,
-            "lora_C": lora3 if lora3 != "None" else None,
+            "lora_C": lora_chk(lora3),
             "lora_scale_C": lora_scale3,
-            "lora_D": lora4 if lora4 != "None" else None,
+            "lora_D": lora_chk(lora4),
             "lora_scale_D": lora_scale4,
-            "lora_E": lora5 if lora5 != "None" else None,
+            "lora_E": lora_chk(lora5),
             "lora_scale_E": lora_scale5,
-            "lora_F": lora6 if lora6 != "None" else None,
+            "lora_F": lora_chk(lora6),
             "lora_scale_F": lora_scale6,
-            "lora_G": lora7 if lora7 != "None" else None,
+            "lora_G": lora_chk(lora7),
             "lora_scale_G": lora_scale7,
             "textual_inversion": embed_list if textual_inversion else [],
             "syntax_weights": syntax_weights,  # "Classic"
@@ -583,9 +588,9 @@ class GuiSD:
             pipe_params["guidance_rescale"] = guidance_rescale
         if IS_ZERO_GPU:
             self.model.device = torch.device("cuda:0")
-        if hasattr(self.model.pipe, "transformer") and loras_list != ["None"] * self.model.num_loras:
-            self.model.pipe.transformer.to(self.model.device)
-            logger.debug("transformer to cuda")
+            if hasattr(self.model.pipe, "transformer") and loras_list != ["None"] * self.model.num_loras:
+                self.model.pipe.transformer.to(self.model.device)
+                logger.debug("transformer to cuda")
 
         actual_progress = 0
         info_images = gr.update()
@@ -751,8 +756,8 @@ def process_upscale(image, upscaler_name, upscaler_size):
 
 
 # https://huggingface.co/spaces/BestWishYsh/ConsisID-preview-Space/discussions/1#674969a022b99c122af5d407
-dynamic_gpu_duration.zerogpu = True
-sd_gen_generate_pipeline.zerogpu = True
+# dynamic_gpu_duration.zerogpu = True
+# sd_gen_generate_pipeline.zerogpu = True
 sd_gen = GuiSD()
 
 with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as app:
@@ -804,7 +809,7 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
 
                 actual_task_info = gr.HTML()
 
-                with gr.Row(equal_height=False, variant="default"):
+                with gr.Row(equal_height=False, variant="default", visible=IS_ZERO_GPU):
                     gpu_duration_gui = gr.Number(minimum=5, maximum=240, value=59, show_label=False, container=False, info="GPU time duration (seconds)")
                     with gr.Column():
                         verbose_info_gui = gr.Checkbox(value=False, container=False, label="Status info")
@@ -840,7 +845,31 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                             "Schedule type": gr.update(value="Automatic"),
                             "PAG": gr.update(value=.0),
                             "FreeU": gr.update(value=False),
+                            "Hires upscaler": gr.update(),
+                            "Hires upscale": gr.update(),
+                            "Hires steps": gr.update(),
+                            "Hires denoising strength": gr.update(),
+                            "Hires CFG": gr.update(),
+                            "Hires sampler": gr.update(),
+                            "Hires schedule type": gr.update(),
+                            "Image resolution": gr.update(value=1024),
+                            "Strength": gr.update(),
                         }
+
+                        lora_names_ = []
+                        lora_scales_ = []
+
+                        # Generate up to 7 LoRAs
+                        for i in range(1, 8):
+                            key_name = f"Lora_{i}"
+                            key_scale = f"Lora_scale_{i}"
+
+                            valid_receptors[key_name] = gr.update()
+                            valid_receptors[key_scale] = gr.update()
+
+                            lora_names_.append(key_name)
+                            lora_scales_.append(key_scale)
+
                         valid_keys = list(valid_receptors.keys())
 
                         parameters = extract_parameters(base_prompt)
@@ -854,6 +883,33 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                                     parameters["Sampler"] = value_sampler
                                     parameters["Schedule type"] = s_type
 
+                        params_lora = []
+                        if ">" in parameters["prompt"] and "<" in parameters["prompt"]:
+                            params_lora = re.findall(r'<lora:[^>]+>', parameters["prompt"])
+                        if "Loras" in parameters:
+                            params_lora += re.findall(r'<lora:[^>]+>', parameters["Loras"])
+
+                        if params_lora:
+                            parsed_params = []
+                            for tag_l in params_lora:
+                                inner = tag_l.strip("<>")        # remove < >
+                                _, data_l = inner.split(":", 1)  # remove the "lora:" part
+                                parts_l = data_l.split(":")
+
+                                name_l = parts_l[0]
+                                weight_l = float(parts_l[1]) if len(parts_l) > 1 else 1.0  # default weight = 1.0
+
+                                parsed_params.append((name_l, weight_l))
+
+                            num_lora = 1
+                            for parsed_l, parsed_s in parsed_params:
+                                filtered_loras = [m for m in lora_model_list if parsed_l in m]
+                                if filtered_loras:
+                                    parameters[f"Lora_{num_lora}"] = filtered_loras[0]
+                                    parameters[f"Lora_scale_{num_lora}"] = parsed_s
+                                    num_lora += 1
+
+                        # continue = discard new value
                         for key, val in parameters.items():
                             # print(val)
                             if key in valid_keys:
@@ -861,9 +917,12 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                                     if key == "Sampler":
                                         if val not in scheduler_names:
                                             continue
-                                    if key == "Schedule type":
+                                    if key in ["Schedule type", "Hires schedule type"]:
                                         if val not in SCHEDULE_TYPE_OPTIONS:
-                                            val = "Automatic"
+                                            continue
+                                    if key == "Hires sampler":
+                                        if val not in POST_PROCESSING_SAMPLER:
+                                            continue
                                     elif key == "Clip skip":
                                         if "," in str(val):
                                             val = val.replace(",", "")
@@ -871,15 +930,15 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                                             val = True
                                     if key == "prompt":
                                         if ">" in val and "<" in val:
-                                            val = re.sub(r'<[^>]+>', '', val)
+                                            val = re.sub(r'<[^>]+>', '', val)  # Delete html and loras
                                             print("Removed LoRA written in the prompt")
                                     if key in ["prompt", "neg_prompt"]:
                                         val = re.sub(r'\s+', ' ', re.sub(r',+', ',', val)).strip()
-                                    if key in ["Steps", "width", "height", "Seed"]:
+                                    if key in ["Steps", "width", "height", "Seed", "Hires steps", "Image resolution"]:
                                         val = int(val)
                                     if key == "FreeU":
                                         val = True
-                                    if key in ["CFG scale", "PAG"]:
+                                    if key in ["CFG scale", "PAG", "Hires upscale", "Hires denoising strength", "Hires CFG", "Strength"]:
                                         val = float(val)
                                     if key == "Model":
                                         filtered_models = [m for m in model_list if val in m]
@@ -887,32 +946,18 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                                             val = filtered_models[0]
                                         else:
                                             val = name_model
+                                    if key == "Hires upscaler":
+                                        if val not in UPSCALER_KEYS:
+                                            continue
                                     if key == "Seed":
                                         continue
+
                                     valid_receptors[key] = gr.update(value=val)
                                     # print(val, type(val))
                                     # print(valid_receptors)
                                 except Exception as e:
                                     print(str(e))
                         return [value for value in valid_receptors.values()]
-
-                    set_params_gui.click(
-                        run_set_params_gui, [prompt_gui, model_name_gui], [
-                            prompt_gui,
-                            neg_prompt_gui,
-                            steps_gui,
-                            img_width_gui,
-                            img_height_gui,
-                            seed_gui,
-                            sampler_gui,
-                            cfg_gui,
-                            clip_skip_gui,
-                            model_name_gui,
-                            schedule_type_gui,
-                            pag_scale_gui,
-                            free_u_gui,
-                        ],
-                    )
 
                     def run_clear_prompt_gui():
                         return gr.update(value=""), gr.update(value="")
@@ -951,7 +996,8 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                         return gr.Dropdown(label=label, choices=lora_model_list, value="None", allow_custom_value=True, visible=visible)
 
                     def lora_scale_slider(label, visible=True):
-                        return gr.Slider(minimum=-2, maximum=2, step=0.01, value=0.33, label=label, visible=visible)
+                        val_lora = 2 if IS_ZERO_GPU else 8
+                        return gr.Slider(minimum=-val_lora, maximum=val_lora, step=0.01, value=0.33, label=label, visible=visible)
 
                     lora1_gui = lora_dropdown("Lora1")
                     lora_scale_1_gui = lora_scale_slider("Lora Scale 1")
@@ -963,10 +1009,10 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                     lora_scale_4_gui = lora_scale_slider("Lora Scale 4")
                     lora5_gui = lora_dropdown("Lora5")
                     lora_scale_5_gui = lora_scale_slider("Lora Scale 5")
-                    lora6_gui = lora_dropdown("Lora6", visible=False)
-                    lora_scale_6_gui = lora_scale_slider("Lora Scale 6", visible=False)
-                    lora7_gui = lora_dropdown("Lora7", visible=False)
-                    lora_scale_7_gui = lora_scale_slider("Lora Scale 7", visible=False)
+                    lora6_gui = lora_dropdown("Lora6", visible=(not IS_ZERO_GPU))
+                    lora_scale_6_gui = lora_scale_slider("Lora Scale 6", visible=(not IS_ZERO_GPU))
+                    lora7_gui = lora_dropdown("Lora7", visible=(not IS_ZERO_GPU))
+                    lora_scale_7_gui = lora_scale_slider("Lora Scale 7", visible=(not IS_ZERO_GPU))
 
                     with gr.Accordion("From URL", open=False, visible=True):
                         text_lora = gr.Textbox(
@@ -975,7 +1021,7 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                             lines=1,
                             info="It has to be .safetensors files, and you can also download them from Hugging Face.",
                         )
-                        romanize_text = gr.Checkbox(value=False, label="Transliterate name", visible=False)
+                        romanize_text = gr.Checkbox(value=False, label="Transliterate name", visible=(not IS_ZERO_GPU))
                         button_lora = gr.Button("Get and Refresh the LoRA Lists")
                         new_lora_status = gr.HTML()
                         button_lora.click(
@@ -1076,7 +1122,7 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                         gr.Info(f"{len(sd_gen.model.STYLE_NAMES)} styles loaded")
                         return gr.update(value=None, choices=sd_gen.model.STYLE_NAMES)
 
-                    style_button.click(load_json_style_file, [style_json_gui], [style_prompt_gui])                        
+                    style_button.click(load_json_style_file, [style_json_gui], [style_prompt_gui])
 
                 with gr.Accordion("Textual inversion", open=False, visible=False):
                     active_textual_inversion_gui = gr.Checkbox(value=False, label="Active Textual Inversion in prompt")
@@ -1126,19 +1172,61 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                     hires_before_adetailer_gui = gr.Checkbox(value=False, label="Hires Before Adetailer")
                     hires_after_adetailer_gui = gr.Checkbox(value=True, label="Hires After Adetailer")
                     generator_in_cpu_gui = gr.Checkbox(value=False, label="Generator in CPU")
+                    with gr.Column(visible=(not IS_ZERO_GPU)):
+                        image_storage_location_gui = gr.Textbox(value=img_path, label="Image Storage Location")
+                        disable_progress_bar_gui = gr.Checkbox(value=False, label="Disable Progress Bar")
+                        leave_progress_bar_gui = gr.Checkbox(value=True, label="Leave Progress Bar")
 
                 with gr.Accordion("More settings", open=False, visible=False):
                     loop_generation_gui = gr.Slider(minimum=1, value=1, label="Loop Generation")
                     retain_task_cache_gui = gr.Checkbox(value=False, label="Retain task model in cache")
-                    leave_progress_bar_gui = gr.Checkbox(value=True, label="Leave Progress Bar")
-                    disable_progress_bar_gui = gr.Checkbox(value=False, label="Disable Progress Bar")
                     display_images_gui = gr.Checkbox(value=False, label="Display Images")
                     image_previews_gui = gr.Checkbox(value=True, label="Image Previews")
-                    image_storage_location_gui = gr.Textbox(value=img_path, label="Image Storage Location")
                     retain_compel_previous_load_gui = gr.Checkbox(value=False, label="Retain Compel Previous Load")
                     retain_detailfix_model_previous_load_gui = gr.Checkbox(value=False, label="Retain Detailfix Model Previous Load")
                     retain_hires_model_previous_load_gui = gr.Checkbox(value=False, label="Retain Hires Model Previous Load")
                     xformers_memory_efficient_attention_gui = gr.Checkbox(value=False, label="Xformers Memory Efficient Attention")
+
+                set_params_gui.click(
+                    run_set_params_gui, [prompt_gui, model_name_gui], [
+                        prompt_gui,
+                        neg_prompt_gui,
+                        steps_gui,
+                        img_width_gui,
+                        img_height_gui,
+                        seed_gui,
+                        sampler_gui,
+                        cfg_gui,
+                        clip_skip_gui,
+                        model_name_gui,
+                        schedule_type_gui,
+                        pag_scale_gui,
+                        free_u_gui,
+                        upscaler_model_path_gui,
+                        upscaler_increases_size_gui,
+                        hires_steps_gui,
+                        hires_denoising_strength_gui,
+                        hires_guidance_scale_gui,
+                        hires_sampler_gui,
+                        hires_schedule_type_gui,
+                        image_resolution_gui,
+                        strength_gui,
+                        lora1_gui,
+                        lora_scale_1_gui,
+                        lora2_gui,
+                        lora_scale_2_gui,
+                        lora3_gui,
+                        lora_scale_3_gui,
+                        lora4_gui,
+                        lora_scale_4_gui,
+                        lora5_gui,
+                        lora_scale_5_gui,
+                        lora6_gui,
+                        lora_scale_6_gui,
+                        lora7_gui,
+                        lora_scale_7_gui,
+                    ],
+                )
 
         with gr.Accordion("Examples and help", open=False, visible=True):
             gr.Markdown(HELP_GUI)
@@ -1202,6 +1290,7 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                 )
 
                 show_canvas = gr.Button("SHOW INPAINT CANVAS")
+
                 def change_visibility_canvas():
                     return gr.update(visible=True, interactive=True), gr.update(visible=False)
                 show_canvas.click(change_visibility_canvas, [], [image_base, show_canvas])

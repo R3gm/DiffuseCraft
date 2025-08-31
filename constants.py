@@ -9,6 +9,8 @@ from stablepy import (
     IP_ADAPTERS_SDXL,
 )
 
+IS_ZERO_GPU = os.getenv("SPACES_ZERO_GPU")
+
 # - **Download Models**
 DOWNLOAD_MODEL = "https://huggingface.co/TechnoByte/MilkyWonderland/resolve/main/milkyWonderland_v40.safetensors"
 
@@ -360,9 +362,11 @@ SUBTITLE_GUI = (
     " to perform different tasks in image generation."
 )
 
+msg_zero = "" if not IS_ZERO_GPU else "- The current space runs on a ZERO GPU which is assigned for approximately 60 seconds; Therefore, if you submit expensive tasks, the operation may be canceled upon reaching the maximum allowed time with 'GPU TASK ABORTED'."
+
 HELP_GUI = (
-    """### Help:
-    - The current space runs on a ZERO GPU which is assigned for approximately 60 seconds; Therefore, if you submit expensive tasks, the operation may be canceled upon reaching the maximum allowed time with 'GPU TASK ABORTED'.
+    f"""### Help:
+    {msg_zero}
     - Distorted or strange images often result from high prompt weights, so it's best to use low weights and scales, and consider using Classic variants like 'Classic-original'.
     - For better results with Pony Diffusion, try using sampler DPM++ 1s or DPM2 with Compel or Classic prompt weights.
     """
@@ -581,6 +585,7 @@ EXAMPLES_GUI = [
 RESOURCES = (
     """### Resources
     - John6666's space has some great features you might find helpful [link](https://huggingface.co/spaces/John6666/DiffuseCraftMod).
-    - You can also try the image generator in Colab’s free tier, which provides free GPU [link](https://github.com/R3gm/SD_diffusers_interactive).
+    - Try the image generator in Colab’s free tier, which provides free GPU [link](https://github.com/R3gm/SD_diffusers_interactive).
+    - You can also try `DiffuseCraft` in Colab’s free tier, which provides free GPU [link](https://github.com/R3gm/DiffuseCraft?tab=readme-ov-file#diffusecraft).
     """
 )

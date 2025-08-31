@@ -8,3 +8,4 @@ pydantic==2.10.6
 huggingface_hub==0.29.3
 spaces
 gradio==5.44.1
+matplotlib-inline
