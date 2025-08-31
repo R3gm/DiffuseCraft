@@ -91,7 +91,7 @@ def get_civit_params(url):
 
 
 def civ_redirect_down(url, dir, civitai_api_key, romanize, alternative_name):
-    filename_base = None
+    filename_base = filename = None
 
     if alternative_name:
         output_path = os.path.join(dir, alternative_name)
@@ -126,6 +126,8 @@ def civ_redirect_down(url, dir, civitai_api_key, romanize, alternative_name):
     filename_base = alternative_name if alternative_name else filename
     if not filename_base:
         return None, None
+    elif os.path.exists(os.path.join(dir, filename_base)):
+        return os.path.join(dir, filename_base), filename_base
 
     aria2_command = (
         f'aria2c --console-log-level=error --summary-interval=10 -c -x 16 '
@@ -224,9 +226,9 @@ def download_things(directory, url, hf_token="", civitai_api_key="", romanize=Fa
         downloaded_file_path = hf_down(url, directory, hf_token, romanize)
     elif "civitai.com" in url:
         if not civitai_api_key:
-            msg = "\033[91mYou need an API key to download Civitai models.\033[0m"
-            print(msg)
-            gr.Info(msg)
+            msg = "You need an API key to download Civitai models."
+            print(f"\033[91m{msg}\033[0m")
+            gr.Warning(msg)
             return None
 
         url, civ_filename, civ_page = get_civit_params(url)
@@ -242,8 +244,8 @@ def download_things(directory, url, hf_token="", civitai_api_key="", romanize=Fa
                 "Attempting to download using the old method..."
             )
             print(msg)
-            gr.Info(msg)
-            downloaded_file_path = civ_api_down(url, dir, civitai_api_key, civ_filename)
+            gr.Warning(msg)
+            downloaded_file_path = civ_api_down(url, directory, civitai_api_key, civ_filename)
     else:
         os.system(f"aria2c --console-log-level=error --summary-interval=10 -c -x 16 -k 1M -s 16 -d {directory} {url}")
 
@@ -273,7 +275,7 @@ def extract_parameters(input_string):
             input_string = input_string.replace("Steps:", "Negative prompt: Steps:")
         else:
             msg = "Generation data is invalid."
-            gr.Info(msg)
+            gr.Warning(msg)
             print(msg)
             parameters["prompt"] = input_string
             return parameters

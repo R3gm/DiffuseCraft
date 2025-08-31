@@ -73,7 +73,7 @@ from diffusers import FluxPipeline
 # import urllib.parse
 import subprocess
 
-IS_ZERO_GPU = os.getenv("SPACES_ZERO_GPU")
+IS_ZERO_GPU = bool(os.getenv("SPACES_ZERO_GPU"))
 if IS_ZERO_GPU:
     subprocess.run("rm -rf /data-nvme/zerogpu-offload/*", env={}, shell=True)
 IS_GPU_MODE = True if IS_ZERO_GPU else (True if torch.cuda.is_available() else False)
@@ -747,7 +747,7 @@ def process_upscale(image, upscaler_name, upscaler_size):
 
         name_upscaler = f"./{DIRECTORY_UPSCALERS}/{name_upscaler.split('/')[-1]}"
 
-    scaler_beta = load_upscaler_model(model=name_upscaler, tile=0, tile_overlap=8, device=("cuda" if IS_GPU_MODE else "cpu"), half=IS_GPU_MODE)
+    scaler_beta = load_upscaler_model(model=name_upscaler, tile=(0 if IS_ZERO_GPU else 192), tile_overlap=8, device=("cuda" if IS_GPU_MODE else "cpu"), half=IS_GPU_MODE)
     image_up = scaler_beta.upscale(image, upscaler_size, True)
 
     image_path = save_pil_image_with_metadata(image_up, f'{os.getcwd()}/up_images', exif_image)
@@ -892,14 +892,17 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                         if params_lora:
                             parsed_params = []
                             for tag_l in params_lora:
-                                inner = tag_l.strip("<>")        # remove < >
-                                _, data_l = inner.split(":", 1)  # remove the "lora:" part
-                                parts_l = data_l.split(":")
+                                try:
+                                    inner = tag_l.strip("<>")        # remove < >
+                                    _, data_l = inner.split(":", 1)  # remove the "lora:" part
+                                    parts_l = data_l.split(":")
 
-                                name_l = parts_l[0]
-                                weight_l = float(parts_l[1]) if len(parts_l) > 1 else 1.0  # default weight = 1.0
+                                    name_l = parts_l[0]
+                                    weight_l = float(parts_l[1]) if len(parts_l) > 1 else 1.0  # default weight = 1.0
 
-                                parsed_params.append((name_l, weight_l))
+                                    parsed_params.append((name_l, weight_l))
+                                except Exception as e:
+                                    print(f"Error parsing LoRA tag {tag_l}: {e}")
 
                             num_lora = 1
                             for parsed_l, parsed_s in parsed_params:
@@ -979,7 +982,7 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
 
                     upscaler_model_path_gui = gr.Dropdown(label="Upscaler", choices=UPSCALER_KEYS, value=UPSCALER_KEYS[0])
                     upscaler_increases_size_gui = gr.Slider(minimum=1.1, maximum=4., step=0.1, value=1.2, label="Upscale by")
-                    upscaler_tile_size_gui = gr.Slider(minimum=0, maximum=512, step=16, value=0, label="Upscaler Tile Size", info="0 = no tiling")
+                    upscaler_tile_size_gui = gr.Slider(minimum=0, maximum=512, step=16, value=(0 if IS_ZERO_GPU else 192), label="Upscaler Tile Size", info="0 = no tiling")
                     upscaler_tile_overlap_gui = gr.Slider(minimum=0, maximum=48, step=1, value=8, label="Upscaler Tile Overlap")
                     hires_steps_gui = gr.Slider(minimum=0, value=30, maximum=100, step=1, label="Hires Steps")
                     hires_denoising_strength_gui = gr.Slider(minimum=0.1, maximum=1.0, step=0.01, value=0.55, label="Hires Denoising Strength")
