@@ -185,8 +185,11 @@ DIRECTORY_VAES = 'vaes'
 DIRECTORY_EMBEDS = 'embedings'
 DIRECTORY_UPSCALERS = 'upscalers'
 
-CACHE_HF = "/home/user/.cache/huggingface/hub/"
 STORAGE_ROOT = "/home/user/"
+CACHE_HF_ROOT = os.path.expanduser("~/.cache/huggingface")
+CACHE_HF = os.path.join(CACHE_HF_ROOT, "hub")
+if IS_ZERO_GPU:
+    os.environ["HF_HOME"] = CACHE_HF
 
 TASK_STABLEPY = {
     'txt2img': 'txt2img',
@@ -490,7 +493,7 @@ EXAMPLES_GUI = [
         20,
         4.0,
         -1,
-        "loras/Coloring_book_-_LineArt.safetensors",
+        ("loras/Coloring_book_-_LineArt.safetensors" if os.path.exists("loras/Coloring_book_-_LineArt.safetensors") else "None"),
         1.0,
         "DPM++ 2M SDE",
         1024,
@@ -586,6 +589,6 @@ RESOURCES = (
     """### Resources
     - John6666's space has some great features you might find helpful [link](https://huggingface.co/spaces/John6666/DiffuseCraftMod).
     - Try the image generator in Colab’s free tier, which provides free GPU [link](https://github.com/R3gm/SD_diffusers_interactive).
-    - You can also try `DiffuseCraft` in Colab’s free tier, which provides free GPU [link](https://github.com/R3gm/DiffuseCraft?tab=readme-ov-file#diffusecraft).
+    - `DiffuseCraft` in Colab:[link](https://github.com/R3gm/DiffuseCraft?tab=readme-ov-file#diffusecraft).
     """
 )

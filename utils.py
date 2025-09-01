@@ -9,6 +9,7 @@ from constants import (
     DIRECTORY_LORAS,
     DIRECTORY_MODELS,
     DIFFUSECRAFT_CHECKPOINT_NAME,
+    CACHE_HF_ROOT,
     CACHE_HF,
     STORAGE_ROOT,
 )
@@ -493,9 +494,9 @@ def get_folder_size_gb(folder_path):
     return total_size_gb
 
 
-def get_used_storage_gb():
+def get_used_storage_gb(path_storage=STORAGE_ROOT):
     try:
-        used_gb = get_folder_size_gb(STORAGE_ROOT)
+        used_gb = get_folder_size_gb(path_storage)
         print(f"Used Storage: {used_gb:.2f} GB")
     except Exception as e:
         used_gb = 999
@@ -513,6 +514,21 @@ def delete_model(removal_candidate):
         diffusers_model = f"{CACHE_HF}{DIRECTORY_MODELS}--{removal_candidate.replace('/', '--')}"
         if os.path.isdir(diffusers_model):
             shutil.rmtree(diffusers_model)
+
+
+def clear_hf_cache():
+    """
+    Clears the entire Hugging Face cache at ~/.cache/huggingface.
+    Hugging Face will re-download models as needed later.
+    """
+    try:
+        if os.path.exists(CACHE_HF_ROOT):
+            shutil.rmtree(CACHE_HF_ROOT, ignore_errors=True)
+            print(f"Hugging Face cache cleared: {CACHE_HF_ROOT}")
+        else:
+            print(f"No Hugging Face cache found at: {CACHE_HF_ROOT}")
+    except Exception as e:
+        print(f"Error clearing Hugging Face cache: {e}")
 
 
 def progress_step_bar(step, total):

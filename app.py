@@ -41,6 +41,7 @@ from constants import (
     DIFFUSERS_CONTROLNET_MODEL,
     IP_MODELS,
     MODE_IP_OPTIONS,
+    CACHE_HF_ROOT,
 )
 from stablepy.diffusers_vanilla.style_prompt_config import STYLE_NAMES
 import torch
@@ -61,6 +62,7 @@ from utils import (
     progress_step_bar,
     html_template_message,
     escape_html,
+    clear_hf_cache,
 )
 from image_processor import preprocessor_tab
 from datetime import datetime
@@ -136,7 +138,7 @@ warnings.filterwarnings(action="ignore", category=FutureWarning, module="diffuse
 warnings.filterwarnings(action="ignore", category=UserWarning, module="diffusers")
 warnings.filterwarnings(action="ignore", category=FutureWarning, module="transformers")
 
-parser = ArgumentParser(description='DiffuseCraft: Generate images.', add_help=True)
+parser = ArgumentParser(description='DiffuseCraft: Create images from text prompts.', add_help=True)
 parser.add_argument("--share", action="store_true", dest="share_enabled", default=False, help="Enable sharing")
 parser.add_argument('--theme', type=str, default="NoCrypt/miku", help='Set the theme (default: NoCrypt/miku)')
 parser.add_argument("--ssr", action="store_true", help="Enable SSR (Server-Side Rendering)")
@@ -176,6 +178,15 @@ class GuiSD:
             removal_candidate = self.inventory.pop(0)
             delete_model(removal_candidate)
 
+        # Cleanup after 60 seconds of inactivity
+        lowPrioCleanup = max((datetime.now() - self.last_load).total_seconds(), 0) > 60
+        if lowPrioCleanup and not self.status_loading and get_used_storage_gb(CACHE_HF_ROOT) > (storage_floor_gb * 2):
+            print("Cleaning up Hugging Face cache...")
+            clear_hf_cache()
+            self.inventory = [
+                m for m in self.inventory if os.path.exists(m)
+            ]
+
     def update_inventory(self, model_name):
         if model_name not in single_file_model_list:
             self.inventory = [
@@ -186,12 +197,9 @@ class GuiSD:
     def load_new_model(self, model_name, vae_model, task, controlnet_model, progress=gr.Progress(track_tqdm=True)):
 
         # download link model > model_name
-        if "http" in model_name:
-            path_model = f"./{DIRECTORY_MODELS}/{model_name.split('/')[-1]}"
-            if os.path.exists(path_model):
-                model_name = path_model
-            else:
-                model_name = download_things(DIRECTORY_MODELS, model_name, HF_TOKEN, CIVITAI_API_KEY)
+        if model_name.startswith("http"):
+            yield f"Downloading model: {model_name}"
+            model_name = download_things(DIRECTORY_MODELS, model_name, HF_TOKEN, CIVITAI_API_KEY)
 
         if IS_ZERO_GPU:
             self.update_storage_models()
@@ -208,8 +216,8 @@ class GuiSD:
                 revision="main",
                 token=True,
             )
-        if IS_ZERO_GPU:
-            self.update_inventory(model_name)
+
+        self.update_inventory(model_name)
 
         for i in range(68):
             if not self.status_loading:
@@ -1485,6 +1493,6 @@ if __name__ == "__main__":
         show_error=True,
         share=args.share_enabled,
         debug=True,
-        ssr_mode=(True if IS_ZERO_GPU else args.ssr),
+        ssr_mode=args.ssr,
         allowed_paths=[allowed_path],
     )
