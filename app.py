@@ -90,19 +90,15 @@ for directory in directories:
 
 # Download stuffs
 for url in [url.strip() for url in DOWNLOAD_MODEL.split(',')]:
-    if not os.path.exists(f"./models/{url.split('/')[-1]}"):
-        download_things(DIRECTORY_MODELS, url, HF_TOKEN, CIVITAI_API_KEY)
+    download_things(DIRECTORY_MODELS, url, HF_TOKEN, CIVITAI_API_KEY)
 for url in [url.strip() for url in DOWNLOAD_VAE.split(',')]:
-    if not os.path.exists(f"./vaes/{url.split('/')[-1]}"):
-        download_things(DIRECTORY_VAES, url, HF_TOKEN, CIVITAI_API_KEY)
+    download_things(DIRECTORY_VAES, url, HF_TOKEN, CIVITAI_API_KEY)
 for url in [url.strip() for url in DOWNLOAD_LORA.split(',')]:
-    if not os.path.exists(f"./loras/{url.split('/')[-1]}"):
-        download_things(DIRECTORY_LORAS, url, HF_TOKEN, CIVITAI_API_KEY)
+    download_things(DIRECTORY_LORAS, url, HF_TOKEN, CIVITAI_API_KEY)
 
 # Download Embeddings
 for url_embed in DOWNLOAD_EMBEDS:
-    if not os.path.exists(f"./embedings/{url_embed.split('/')[-1]}"):
-        download_things(DIRECTORY_EMBEDS, url_embed, HF_TOKEN, CIVITAI_API_KEY)
+    download_things(DIRECTORY_EMBEDS, url_embed, HF_TOKEN, CIVITAI_API_KEY)
 
 # Build list models
 embed_list = get_model_list(DIRECTORY_EMBEDS)
@@ -856,19 +852,10 @@ with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as
                             "Strength": gr.update(),
                         }
 
-                        lora_names_ = []
-                        lora_scales_ = []
-
                         # Generate up to 7 LoRAs
                         for i in range(1, 8):
-                            key_name = f"Lora_{i}"
-                            key_scale = f"Lora_scale_{i}"
-
-                            valid_receptors[key_name] = gr.update()
-                            valid_receptors[key_scale] = gr.update()
-
-                            lora_names_.append(key_name)
-                            lora_scales_.append(key_scale)
+                            valid_receptors[f"Lora_{i}"] = gr.update()
+                            valid_receptors[f"Lora_scale_{i}"] = gr.update()
 
                         valid_keys = list(valid_receptors.keys())
 

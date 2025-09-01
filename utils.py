@@ -90,11 +90,11 @@ def get_civit_params(url):
         return url, None, None
 
 
-def civ_redirect_down(url, dir, civitai_api_key, romanize, alternative_name):
+def civ_redirect_down(url, dir_, civitai_api_key, romanize, alternative_name):
     filename_base = filename = None
 
     if alternative_name:
-        output_path = os.path.join(dir, alternative_name)
+        output_path = os.path.join(dir_, alternative_name)
         if os.path.exists(output_path):
             return output_path, alternative_name
 
@@ -126,26 +126,26 @@ def civ_redirect_down(url, dir, civitai_api_key, romanize, alternative_name):
     filename_base = alternative_name if alternative_name else filename
     if not filename_base:
         return None, None
-    elif os.path.exists(os.path.join(dir, filename_base)):
-        return os.path.join(dir, filename_base), filename_base
+    elif os.path.exists(os.path.join(dir_, filename_base)):
+        return os.path.join(dir_, filename_base), filename_base
 
     aria2_command = (
         f'aria2c --console-log-level=error --summary-interval=10 -c -x 16 '
-        f'-k 1M -s 16 -d "{dir}" -o "{filename_base}" "{redirect_url}"'
+        f'-k 1M -s 16 -d "{dir_}" -o "{filename_base}" "{redirect_url}"'
     )
     r_code = os.system(aria2_command)  # noqa
 
     # if r_code != 0:
     #     raise RuntimeError(f"Failed to download file: {filename_base}. Error code: {r_code}")
 
-    output_path = os.path.join(dir, filename_base)
+    output_path = os.path.join(dir_, filename_base)
     if not os.path.exists(output_path):
         return None, filename_base
 
     return output_path, filename_base
 
 
-def civ_api_down(url, dir, civitai_api_key, civ_filename):
+def civ_api_down(url, dir_, civitai_api_key, civ_filename):
     """
     This method is susceptible to being blocked because it generates a lot of temp redirect links with aria2c.
     If an API key limit is reached, generating a new API key and using it can fix the issue.
@@ -154,35 +154,35 @@ def civ_api_down(url, dir, civitai_api_key, civ_filename):
 
     url_dl = url + f"?token={civitai_api_key}"
     if not civ_filename:
-        aria2_command = f'aria2c -c -x 1 -s 1 -d "{dir}" "{url_dl}"'
+        aria2_command = f'aria2c -c -x 1 -s 1 -d "{dir_}" "{url_dl}"'
         os.system(aria2_command)
     else:
-        output_path = os.path.join(dir, civ_filename)
+        output_path = os.path.join(dir_, civ_filename)
         if not os.path.exists(output_path):
             aria2_command = (
                 f'aria2c --console-log-level=error --summary-interval=10 -c -x 16 '
-                f'-k 1M -s 16 -d "{dir}" -o "{civ_filename}" "{url_dl}"'
+                f'-k 1M -s 16 -d "{dir_}" -o "{civ_filename}" "{url_dl}"'
             )
             os.system(aria2_command)
 
     return output_path
 
 
-def drive_down(url, dir):
+def drive_down(url, dir_):
     import gdown
 
     output_path = None
 
     drive_id, _ = gdown.parse_url.parse_url(url, warning=False)
-    dir_files = os.listdir(dir)
+    dir_files = os.listdir(dir_)
 
     for dfile in dir_files:
         if drive_id in dfile:
-            output_path = os.path.join(dir, dfile)
+            output_path = os.path.join(dir_, dfile)
             break
 
     if not output_path:
-        original_path = gdown.download(url, f"{dir}/", fuzzy=True)
+        original_path = gdown.download(url, f"{dir_}/", fuzzy=True)
 
         dir_name, base_name = os.path.split(original_path)
         name, ext = base_name.rsplit(".", 1)
@@ -194,12 +194,12 @@ def drive_down(url, dir):
     return output_path
 
 
-def hf_down(url, dir, hf_token, romanize):
+def hf_down(url, dir_, hf_token, romanize):
     url = url.replace("?download=true", "")
     # url = urllib.parse.quote(url, safe=':/')  # fix encoding
 
     filename = unidecode(url.split('/')[-1]) if romanize else url.split('/')[-1]
-    output_path = os.path.join(dir, filename)
+    output_path = os.path.join(dir_, filename)
 
     if os.path.exists(output_path):
         return output_path
@@ -209,9 +209,9 @@ def hf_down(url, dir, hf_token, romanize):
 
     if hf_token:
         user_header = f'"Authorization: Bearer {hf_token}"'
-        os.system(f"aria2c --console-log-level=error --summary-interval=10 --header={user_header} -c -x 16 -k 1M -s 16 {url} -d {dir}  -o {filename}")
+        os.system(f"aria2c --console-log-level=error --summary-interval=10 --header={user_header} -c -x 16 -k 1M -s 16 {url} -d {dir_}  -o {filename}")
     else:
-        os.system(f"aria2c --optimize-concurrent-downloads --console-log-level=error --summary-interval=10 -c -x 16 -k 1M -s 16 {url} -d {dir}  -o {filename}")
+        os.system(f"aria2c --optimize-concurrent-downloads --console-log-level=error --summary-interval=10 -c -x 16 -k 1M -s 16 {url} -d {dir_}  -o {filename}")
 
     return output_path
 
