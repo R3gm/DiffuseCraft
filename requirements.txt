@@ -6,6 +6,8 @@ opencv-python
 unidecode
 pydantic==2.10.6
 huggingface_hub
+hf_transfer
+hf_xet
 spaces
 gradio==5.44.1
 matplotlib-inline
