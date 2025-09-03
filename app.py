@@ -767,7 +767,7 @@ def process_upscale(image, upscaler_name, upscaler_size):
 # sd_gen_generate_pipeline.zerogpu = True
 sd_gen = GuiSD()
 
-with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False, delete_cache=delete_cache_time) as app:
+with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as app:
     gr.Markdown("# 🧩 DiffuseCraft")
     gr.Markdown(SUBTITLE_GUI)
     with gr.Tab("Generation"):
