@@ -29,6 +29,7 @@ from urllib3.util import Retry
 import shutil
 import subprocess
 
+IS_ZERO_GPU = bool(os.getenv("SPACES_ZERO_GPU"))
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0'
 
 
@@ -233,7 +234,7 @@ def download_things(directory, url, hf_token="", civitai_api_key="", romanize=Fa
             return None
 
         url, civ_filename, civ_page = get_civit_params(url)
-        if civ_page:
+        if civ_page and not IS_ZERO_GPU:
             print(f"\033[92mCivitai model: {civ_filename} [page: {civ_page}]\033[0m")
 
         downloaded_file_path, civ_filename = civ_redirect_down(url, directory, civitai_api_key, romanize, civ_filename)

@@ -81,6 +81,7 @@ if IS_ZERO_GPU:
 IS_GPU_MODE = True if IS_ZERO_GPU else (True if torch.cuda.is_available() else False)
 img_path = "./images/"
 allowed_path = os.path.abspath(img_path)
+delete_cache_time = (9600, 9600) if IS_ZERO_GPU else (86400, 86400)
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -200,6 +201,10 @@ class GuiSD:
         if model_name.startswith("http"):
             yield f"Downloading model: {model_name}"
             model_name = download_things(DIRECTORY_MODELS, model_name, HF_TOKEN, CIVITAI_API_KEY)
+            if not model_name:
+                msg = "Error retrieving model information from URL"
+                gr.Warning(msg)
+                print(msg)
 
         if IS_ZERO_GPU:
             self.update_storage_models()
@@ -764,7 +769,7 @@ def process_upscale(image, upscaler_name, upscaler_size):
 # sd_gen_generate_pipeline.zerogpu = True
 sd_gen = GuiSD()
 
-with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False) as app:
+with gr.Blocks(theme=args.theme, css=CSS, fill_width=True, fill_height=False, delete_cache=delete_cache_time) as app:
     gr.Markdown("# 🧩 DiffuseCraft")
     gr.Markdown(SUBTITLE_GUI)
     with gr.Tab("Generation"):
