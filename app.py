@@ -202,9 +202,7 @@ class GuiSD:
             yield f"Downloading model: {model_name}"
             model_name = download_things(DIRECTORY_MODELS, model_name, HF_TOKEN, CIVITAI_API_KEY)
             if not model_name:
-                msg = "Error retrieving model information from URL"
-                gr.Warning(msg)
-                print(msg)
+                raise ValueError("Error retrieving model information from URL")
 
         if IS_ZERO_GPU:
             self.update_storage_models()
