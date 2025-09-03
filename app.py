@@ -147,7 +147,7 @@ parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "
 args = parser.parse_args()
 
 logger.setLevel(
-    "DEBUG" if IS_ZERO_GPU else getattr(logging, args.log_level.upper())
+    "INFO" if IS_ZERO_GPU else getattr(logging, args.log_level.upper())
 )
 
 CSS = """
